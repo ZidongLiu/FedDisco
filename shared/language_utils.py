@@ -91,9 +91,9 @@ class RTETemplate(ClassificationTemplate):
     verbalizer = {0: "Yes", 1: "No"}
 
     def verbalize_for_pred(self, sample):
-        sentence1 = sample["sentence1"]
-        sentence2 = sample["sentence2"]
-        return f'{sentence1}\nDoes this mean that "{sentence2}" is true? Yes or No?\n'
+        premise = sample["premise"]
+        hypothesis = sample["hypothesis"]
+        return f'{premise}\nDoes this mean that "{hypothesis}" is true? Yes or No?\n'
 
 
 class MultiRCTemplate(ClassificationTemplate):
@@ -172,9 +172,9 @@ class LLMBatchInput:
     input_ids: torch.Tensor
     attention_mask: torch.Tensor
 
-    def to(self, device):
-        self.input_ids = self.input_ids.to(device)
-        self.attention_mask = self.attention_mask.to(device)
+    def to(self, device=None, dtype=None):
+        self.input_ids = self.input_ids.to(device=device)
+        self.attention_mask = self.attention_mask.to(device=device)
         return self
 
 
