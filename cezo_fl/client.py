@@ -26,9 +26,8 @@ class LocalUpdateResult:
 
 
 class AbstractClient:
-    @abc.abstractproperty
-    def device(self) -> torch.device:
-        return torch.device(self._device)
+    device: torch.device
+    optimizer: torch.optim.Optimizer
 
     @abc.abstractmethod
     def local_update(self, seeds: Sequence[int]) -> LocalUpdateResult:
@@ -41,9 +40,9 @@ class AbstractClient:
         return NotImplemented
 
     @abc.abstractmethod
-    def reset_model(self) -> None:
+    def reset_model(self) -> None:  # type: ignore
         """Reset the mode to the state before the local_update."""
-        return NotImplemented
+        return NotImplemented  # type: ignore
 
     @abc.abstractmethod
     def pull_model(
@@ -51,7 +50,7 @@ class AbstractClient:
         seeds_list: Sequence[Sequence[int]],
         gradient_scalar: Sequence[Sequence[torch.Tensor]],
     ) -> None:
-        return NotImplemented
+        return NotImplemented  # type: ignore
 
     @abc.abstractmethod
     def random_gradient_estimator(self) -> RGE:
@@ -67,12 +66,12 @@ class SyncClient(AbstractClient):
         optimizer: torch.optim.Optimizer,
         criterion: CriterionType,
         accuracy_func,
-        device: torch.device | None = None,
+        device: torch.device,
     ):
         self.model = model
         self.dataloader = dataloader
 
-        self._device = device
+        self.device = device
 
         self.grad_estimator = grad_estimator
         self.optimizer = optimizer
@@ -100,7 +99,7 @@ class SyncClient(AbstractClient):
         The inner tensor can be a scalar or a vector. The length of vector is the number
         of perturbations.
         """
-        iteration_local_update_grad_vectors: Sequence[torch.Tensor] = []
+        iteration_local_update_grad_vectors: list[torch.Tensor] = []
         train_loss = Metric("Client train loss")
         train_accuracy = Metric("Client train accuracy")
 
@@ -116,6 +115,8 @@ class SyncClient(AbstractClient):
                 # NOTE: label does not convert to dtype
                 labels = labels.to(self.device)
 
+            # declare grad_scalars before assigning it to avoid no-redef type check
+            grad_scalars: torch.Tensor
             if self.grad_estimator.sgd_only_no_optim:
                 grad_scalars = self.grad_estimator._zo_grad_estimate_paramwise(
                     batch_inputs, labels, self.criterion, seed
@@ -126,7 +127,7 @@ class SyncClient(AbstractClient):
             else:
                 # generate grads and update model's gradient
                 # The length of grad_scalars is number of perturbations
-                grad_scalars: torch.Tensor = self.grad_estimator.compute_grad(
+                grad_scalars = self.grad_estimator.compute_grad(
                     batch_inputs, labels, self.criterion, seed
                 )
                 self.optimizer.step()
@@ -160,8 +161,8 @@ class SyncClient(AbstractClient):
     def screenshot(self) -> None:
         # deepcopy current model.state_dict and optimizer.state_dict
         self.last_pull_state_dict = deepcopy({"optimizer": self.optimizer.state_dict()})
-        self.local_update_seeds_list = []
-        self.local_update_grad_scalar = []
+        self.local_update_seeds_list: list[int] = []
+        self.local_update_grad_scalar: list[torch.Tensor] = []
 
     def pull_model(
         self,
@@ -191,12 +192,12 @@ class ResetClient(AbstractClient):
         optimizer: torch.optim.Optimizer,
         criterion: CriterionType,
         accuracy_func,
-        device: torch.device | None = None,
+        device: torch.device,
     ):
         self.model = model
         self.dataloader = dataloader
 
-        self._device = device
+        self.device = device
 
         self.grad_estimator = grad_estimator
         self.optimizer = optimizer
@@ -204,7 +205,7 @@ class ResetClient(AbstractClient):
         self.accuracy_func = accuracy_func
 
         self.data_iterator = self._get_train_batch_iterator()
-        self.last_pull_state_dict = self.screenshot()
+        self.last_pull_state_dict: dict | None = self.screenshot()
 
     def random_gradient_estimator(self) -> RGE:
         return self.grad_estimator
@@ -222,7 +223,7 @@ class ResetClient(AbstractClient):
         The inner tensor can be a scalar or a vector. The length of vector is the number
         of perturbations.
         """
-        iteration_local_update_grad_vectors: Sequence[torch.Tensor] = []
+        iteration_local_update_grad_vectors: list[torch.Tensor] = []
         train_loss = Metric("Client train loss")
         train_accuracy = Metric("Client train accuracy")
 
@@ -238,6 +239,8 @@ class ResetClient(AbstractClient):
                 # NOTE: label does not convert to dtype
                 labels = labels.to(self.device)
 
+            # declare grad_scalars before assigning it to avoid no-redef type check
+            grad_scalars: torch.Tensor
             if self.grad_estimator.sgd_only_no_optim:
                 grad_scalars = self.grad_estimator._zo_grad_estimate_paramwise(
                     batch_inputs, labels, self.criterion, seed
@@ -248,7 +251,7 @@ class ResetClient(AbstractClient):
             else:
                 # generate grads and update model's gradient
                 # The length of grad_scalars is number of perturbations
-                grad_scalars: torch.Tensor = self.grad_estimator.compute_grad(
+                grad_scalars = self.grad_estimator.compute_grad(
                     batch_inputs, labels, self.criterion, seed
                 )
                 self.optimizer.step()
@@ -267,6 +270,7 @@ class ResetClient(AbstractClient):
 
     def reset_model(self) -> None:
         """Reset the mode to the state before the local_update."""
+        assert self.last_pull_state_dict is not None
         self.model.load_state_dict(self.last_pull_state_dict["model"])
         self.optimizer.load_state_dict(self.last_pull_state_dict["optimizer"])
 
@@ -292,5 +296,5 @@ class ResetClient(AbstractClient):
             )
 
         # screenshot current pulled model
-        self.last_pull_state_dict = None
+        self.last_pull_state_dict = None  # remove previous record to avoid memory spike
         self.last_pull_state_dict = self.screenshot()
